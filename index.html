@@ -1,0 +1,1453 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>道具プリンター乱数支援タイマー</title>
+    <!-- iOS / PWA 設定 -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Supabase JS Client CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <style>
+        :root {
+            --bg: #000000;
+            --card: #121214;
+            --card-border: #242428;
+            --accent: #0a84ff;
+            --accent-glow: rgba(10, 132, 255, 0.3);
+            --secondary: #5e5ce6;
+            --secondary-glow: rgba(94, 92, 230, 0.2);
+            --success: #30d158;
+            --danger: #ff453a;
+            --text: #ffffff;
+            --sub-text: #8e8e93;
+            --input-bg: #1c1c1e;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+        }
+
+        /* ヘッダー・タブ */
+        .header {
+            padding: 12px 0;
+            margin-bottom: 16px;
+            width: 100%;
+        }
+
+        .tab-group {
+            display: flex;
+            background: #1c1c1e;
+            padding: 4px;
+            border-radius: 12px;
+            gap: 4px;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 12px;
+            text-align: center;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: var(--sub-text);
+            background: transparent;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            user-select: none;
+            cursor: pointer;
+        }
+
+        .tab.active {
+            background: #2c2c2e;
+            color: var(--text);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+        }
+
+        /* アプリコンテナ（デフォルト：スマホ向け縦並び） */
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .timer-area-box {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            width: 100%;
+        }
+
+        /* メインディスプレイ */
+        .main-display {
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            transition: box-shadow 0.3s ease, border-color 0.3s ease;
+        }
+
+        /* タイマー動作中のグロー */
+        .main-display.timer-active {
+            border-color: var(--accent);
+            animation: pulse-glow 2s infinite ease-in-out;
+        }
+
+        @keyframes pulse-glow {
+            0% { box-shadow: 0 0 15px var(--accent-glow); }
+            50% { box-shadow: 0 0 30px rgba(10, 132, 255, 0.5); }
+            100% { box-shadow: 0 0 15px var(--accent-glow); }
+        }
+
+        .target-date-box {
+            text-align: center;
+            margin-bottom: 20px;
+            width: 100%;
+        }
+
+        .target-label {
+            font-size: 0.75rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        /* PC手入力用テキストボックス */
+        .target-val-input {
+            font-size: 1.15rem;
+            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, monospace;
+            color: var(--text);
+            letter-spacing: 0.02em;
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            text-align: center;
+            width: 100%;
+            max-width: 260px;
+            padding: 4px;
+            outline: none;
+            transition: border-color 0.2s, background-color 0.2s;
+        }
+
+        .target-val-input:focus {
+            border-color: var(--accent);
+            background: var(--input-bg);
+        }
+
+        .timer-val-container {
+            margin: 15px 0;
+            text-align: center;
+        }
+
+        .timer-val {
+            font-size: 5.5rem;
+            font-weight: 200;
+            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, monospace;
+            font-variant-numeric: tabular-nums;
+            line-height: 1;
+            letter-spacing: -0.02em;
+        }
+
+        .frame-val {
+            font-size: 1.1rem;
+            color: var(--secondary);
+            font-weight: 600;
+            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, monospace;
+            margin-top: 4px;
+        }
+
+        /* オフセットコントロール（共通コントロール） */
+        .common-controls {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto 16px;
+        }
+
+        .offset-control {
+            width: 100%;
+        }
+
+        .offset-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .offset-label {
+            font-size: 0.8rem;
+            color: var(--sub-text);
+            font-weight: 700;
+            letter-spacing: 0.05em;
+        }
+
+        .offset-input-wrap {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .offset-input {
+            width: 90px;
+            background: var(--input-bg);
+            border: 1px solid var(--card-border);
+            color: var(--text);
+            padding: 6px 8px;
+            border-radius: 6px;
+            font-family: ui-monospace, monospace;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+
+        .offset-unit {
+            font-size: 0.8rem;
+            color: var(--sub-text);
+        }
+
+        .adjust-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        /* ボタン */
+        button {
+            touch-action: manipulation;
+            cursor: pointer;
+            border: none;
+            outline: none;
+            transition: transform 0.1s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.1s ease, background-color 0.2s ease;
+        }
+
+        button:active:not(:disabled) {
+            transform: scale(0.95);
+            opacity: 0.8;
+        }
+
+        button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .adj-btn {
+            background: #1c1c1e;
+            color: var(--text);
+            padding: 12px 0;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            border: 1px solid var(--card-border);
+        }
+
+        .adj-btn:active:not(:disabled) {
+            background: #2c2c2e;
+        }
+
+        .action-area {
+            margin: 0 0 8px;
+            width: 100%;
+        }
+
+        .btn-main {
+            width: 100%;
+            padding: 18px;
+            border-radius: 16px;
+            font-size: 1.3rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn-start {
+            background: var(--accent);
+            color: white;
+            box-shadow: 0 4px 15px rgba(10, 132, 255, 0.3);
+        }
+
+        .btn-stop {
+            background: var(--danger);
+            color: white;
+            box-shadow: 0 4px 15px rgba(255, 69, 58, 0.3);
+        }
+
+        /* プリセット・クラウドセクション */
+        .preset-section {
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            padding: 20px;
+            border-radius: 20px;
+            width: 100%;
+        }
+
+        .section-title {
+            color: var(--accent);
+            font-weight: 700;
+            font-size: 0.95rem;
+            letter-spacing: 0.05em;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+        }
+
+        /* ソートボタン */
+        .sort-btn {
+            background: #1c1c1e;
+            color: var(--sub-text);
+            border: 1px solid var(--card-border);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .sort-btn.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .input-text {
+            background: var(--input-bg);
+            border: 1px solid var(--card-border);
+            color: var(--text);
+            padding: 12px 14px;
+            border-radius: 10px;
+            width: 100%;
+            font-size: 0.95rem;
+            margin-bottom: 12px;
+            transition: border-color 0.2s;
+        }
+
+        .input-text:focus {
+            border-color: var(--accent);
+            outline: none;
+        }
+
+        .date-select-container {
+            margin: 12px 0 16px;
+        }
+
+        .date-select-label {
+            font-size: 0.75rem;
+            color: var(--sub-text);
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+
+        .date-select-group {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        select {
+            background: var(--input-bg);
+            border: 1px solid var(--card-border);
+            color: var(--text);
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            text-align: center;
+            outline: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml;utf8,<svg fill='white' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/><path d='M0 0h24v24H0z' fill='none'/></svg>");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+            background-size: 16px;
+            padding-right: 28px;
+        }
+
+        .btn-save {
+            background: var(--secondary);
+            color: white;
+            width: 100%;
+            padding: 14px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            box-shadow: 0 4px 12px rgba(94, 92, 230, 0.2);
+        }
+
+        /* プリセットリスト */
+        .preset-list {
+            margin-top: 20px;
+            border-top: 1px solid var(--card-border);
+            padding-top: 16px;
+        }
+
+        .preset-item {
+            background: #1c1c1e;
+            border: 1px solid var(--card-border);
+            padding: 16px;
+            border-radius: 14px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: transform 0.2s;
+        }
+
+        .preset-info {
+            flex: 1;
+            padding-right: 12px;
+        }
+
+        .preset-name {
+            font-weight: 600;
+            font-size: 0.95rem;
+            margin-bottom: 4px;
+            color: var(--text);
+        }
+
+        .preset-meta {
+            font-size: 0.75rem;
+            color: var(--sub-text);
+            font-family: ui-monospace, monospace;
+            margin-top: 2px;
+        }
+
+        .preset-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: flex-end;
+        }
+
+        .btn-load {
+            background: var(--success);
+            color: black;
+            font-weight: 700;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+
+        .btn-delete {
+            background: transparent;
+            color: var(--danger);
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-decoration: none;
+            padding: 4px 0;
+            border-bottom: 1px dashed var(--danger);
+        }
+        
+        .empty-preset {
+            text-align: center;
+            padding: 30px 0;
+            color: #48484a;
+            font-size: 0.9rem;
+        }
+
+        .meta-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        /* スマホ向け：タブ切り替えと表示切替 */
+        @media (max-width: 767px) {
+            .app-container.show-t1 #t2-container {
+                display: none;
+            }
+            .app-container.show-t2 #t1-container {
+                display: none;
+            }
+        }
+
+        /* PC向け：タブ排除・左右並列マルチタイマー (画面幅768px以上) */
+        @media (min-width: 768px) {
+            .tab-group {
+                display: none; /* タブを完全に排除 */
+            }
+
+            .app-container {
+                flex-direction: row;
+                max-width: 1100px;
+                gap: 24px;
+            }
+
+            .timer-area-box {
+                flex: 1;
+            }
+
+            .common-controls {
+                max-width: 1100px;
+                padding: 0 16px;
+            }
+
+            .meta-container {
+                flex-direction: row;
+                max-width: 1100px;
+                gap: 24px;
+                padding: 0 16px;
+            }
+
+            .meta-container .preset-section {
+                flex: 1;
+            }
+
+            .header {
+                max-width: 1100px;
+                margin: 0 auto 16px;
+                padding: 0 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="tab-group">
+            <div id="tab1" class="tab active" onclick="switchTimer(1)">Timer 1 (シード調整)</div>
+            <div id="tab2" class="tab" onclick="switchTimer(2)">Timer 2 (排出用)</div>
+        </div>
+    </div>
+
+    <!-- アプリメインコンテナ（初期表示はTimer 1表示） -->
+    <div class="app-container show-t1" id="appContainer">
+        
+        <!-- Timer 1 領域 -->
+        <div id="t1-container" class="timer-area-box">
+            <!-- ディスプレイ -->
+            <div id="mainDisplay-t1" class="main-display">
+                <div class="target-date-box">
+                    <div class="target-label">Target Clock (Timer 1)</div>
+                    <input type="text" id="targetInput-t1" class="target-val-input" placeholder="YYYY/MM/DD HH:MM:SS" onchange="syncFromTextInput(1)">
+                </div>
+                <div class="timer-val-container">
+                    <div id="dispMs-t1" class="timer-val">0.00</div>
+                    <div id="dispFrame-t1" class="frame-val">0 F</div>
+                </div>
+            </div>
+
+            <!-- アクションエリア（スタート/ストップ） -->
+            <div class="action-area">
+                <button id="mainBtn-t1" class="btn-main btn-start" onclick="toggleTimer(1)">START TIMER 1</button>
+            </div>
+
+            <!-- 日付設定 -->
+            <div class="preset-section">
+                <div class="section-title">Timer 1 目標日時設定</div>
+                <div class="date-select-container">
+                    <div class="date-select-group">
+                        <select id="sel-y-t1" onchange="syncFromUI(1)"></select>
+                        <select id="sel-mo-t1" onchange="syncFromUI(1)"></select>
+                        <select id="sel-d-t1" onchange="syncFromUI(1)"></select>
+                    </div>
+                    <div class="date-select-group">
+                        <select id="sel-h-t1" onchange="syncFromUI(1)"></select>
+                        <select id="sel-mi-t1" onchange="syncFromUI(1)"></select>
+                        <select id="sel-s-t1" onchange="syncFromUI(1)"></select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Timer 2 領域 -->
+        <div id="t2-container" class="timer-area-box">
+            <!-- ディスプレイ -->
+            <div id="mainDisplay-t2" class="main-display">
+                <div class="target-date-box">
+                    <div class="target-label">Target Clock (Timer 2)</div>
+                    <input type="text" id="targetInput-t2" class="target-val-input" placeholder="YYYY/MM/DD HH:MM:SS" onchange="syncFromTextInput(2)">
+                </div>
+                <div class="timer-val-container">
+                    <div id="dispMs-t2" class="timer-val">0.00</div>
+                    <div id="dispFrame-t2" class="frame-val">0 F</div>
+                </div>
+            </div>
+
+            <!-- アクションエリア（スタート/ストップ） -->
+            <div class="action-area">
+                <button id="mainBtn-t2" class="btn-main btn-start" onclick="toggleTimer(2)">START TIMER 2</button>
+            </div>
+
+            <!-- 日付設定 -->
+            <div class="preset-section">
+                <div class="section-title">Timer 2 目標日時設定</div>
+                <div class="date-select-container">
+                    <div class="date-select-group">
+                        <select id="sel-y-t2" onchange="syncFromUI(2)"></select>
+                        <select id="sel-mo-t2" onchange="syncFromUI(2)"></select>
+                        <select id="sel-d-t2" onchange="syncFromUI(2)"></select>
+                    </div>
+                    <div class="date-select-group">
+                        <select id="sel-h-t2" onchange="syncFromUI(2)"></select>
+                        <select id="sel-mi-t2" onchange="syncFromUI(2)"></select>
+                        <select id="sel-s-t2" onchange="syncFromUI(2)"></select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 共通コントロール領域（オフセット調整） -->
+    <div class="common-controls">
+        <div class="preset-section">
+            <div class="offset-control">
+                <div class="offset-header">
+                    <div class="offset-label">Global Offset Adjust</div>
+                    <div class="offset-input-wrap">
+                        <input type="number" id="offsetInput" class="offset-input" step="1" onchange="syncOffsetFromInput()">
+                        <span class="offset-unit">F (フレーム)</span>
+                    </div>
+                </div>
+                <div class="adjust-grid">
+                    <button id="adj-btn-m60" class="adj-btn" onclick="adjOffset(-60)">-1s</button>
+                    <button id="adj-btn-m15" class="adj-btn" onclick="adjOffset(-15)">-15F</button>
+                    <button id="adj-btn-p15" class="adj-btn" onclick="adjOffset(15)">+15F</button>
+                    <button id="adj-btn-p60" class="adj-btn" onclick="adjOffset(60)">+1s</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- プリセット保存と設定 -->
+    <div class="meta-container">
+        <!-- プリセット保存 & リスト -->
+        <div class="preset-section">
+            <div class="section-title" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span>Preset Save (T1 & T2 Set)</span>
+                <div style="display: flex; gap: 4px;">
+                    <button id="sort-newest" class="sort-btn active" onclick="changeSortMode('newest')">新着順</button>
+                    <button id="sort-usage" class="sort-btn" onclick="changeSortMode('usage')">使用順</button>
+                </div>
+            </div>
+            <input type="text" id="presetName" class="input-text" placeholder="プリセット名を入力（例: 準伝説、色違い等）">
+            <button class="btn-save" onclick="savePreset()">Timer 1 & 2 をセットで保存</button>
+            <div id="presetList" class="preset-list"></div>
+        </div>
+
+        <!-- クラウド設定セクション（折りたたみ式） -->
+        <div class="preset-section">
+            <div class="section-title" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;" onclick="toggleConfigPanel()">
+                <span>Cloud Sync (Supabase)</span>
+                <span id="configToggleBtn" style="font-size: 0.75rem; font-weight: bold; color: var(--accent);">[ 開く ]</span>
+            </div>
+            
+            <div id="configPanel" style="display: none; margin-top: 15px; border-top: 1px solid var(--card-border); padding-top: 15px;">
+                <div style="font-size: 0.75rem; color: var(--sub-text); margin-bottom: 12px; line-height: 1.4;">
+                    Supabaseの接続情報を入力するとクラウド自動同期が有効になります。未設定時はローカル保存（端末のみ）で動作します。
+                </div>
+                
+                <div class="date-select-label">Project URL</div>
+                <input type="text" id="sbUrl" class="input-text" placeholder="https://xxxx.supabase.co" onchange="saveSupabaseConfig()">
+                
+                <div class="date-select-label">Anon Key (API Key)</div>
+                <input type="password" id="sbKey" class="input-text" placeholder="eyJhbGciOiJIUzI1NiIsInR..." onchange="saveSupabaseConfig()">
+                
+                <div id="sbStatus" style="font-size: 0.75rem; text-align: center; margin-top: 8px; color: var(--sub-text); font-weight: bold;">
+                    接続ステータス: 未設定 (ローカル保存動作中)
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // サービスワーカー登録
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('Service Worker registered successfully:', reg.scope))
+                    .catch(err => console.log('Service Worker registration failed:', err));
+            });
+        }
+
+        // 定数・状態管理
+        let activeT = 1; // スマホでのアクティブ判定用
+        let runningTimer = null; // 現在動作中のタイマー (1, 2 または null)
+        let timerId = null; 
+        let startTime = 0;
+        let startFrame = 0;
+        let audioCtx = null;
+        let supabaseClient = null;
+        let currentSortMode = 'newest'; // プリセットのソートモード ('newest' または 'usage')
+        
+        const FPS = 60; 
+        const BEEP_TIMES = [2.0, 1.5, 1.0, 0.5, 0.0]; 
+        let soundedIndex = -1;
+
+        let state = {
+            t1: { d: "2026/07/18 15:50:05", s: 5 },
+            t2: { d: "2026/07/18 15:50:10", s: 10 }
+        };
+        let globalOffset = 0; // フレーム単位 (1s = 60F)
+
+        window.onload = async () => {
+            initSelects();
+            globalOffset = parseInt(localStorage.getItem('rng_global_offset') || "0");
+            document.getElementById('offsetInput').value = globalOffset;
+            
+            // ローカルストレージから前回のステータスを読み込む（存在すれば）
+            const savedState = localStorage.getItem('rng_current_state');
+            if (savedState) {
+                try {
+                    state = JSON.parse(savedState);
+                } catch(e) {}
+            } else {
+                // 初期値を現在のシステム日時に適応
+                const now = new Date();
+                const pad = (n) => String(n).padStart(2, '0');
+                const dateStr1 = `${now.getFullYear()}/${pad(now.getMonth()+1)}/${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:05`;
+                const dateStr2 = `${now.getFullYear()}/${pad(now.getMonth()+1)}/${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:10`;
+                state.t1 = { d: dateStr1, s: 5 };
+                state.t2 = { d: dateStr2, s: 10 };
+            }
+
+            initSupabase();
+            await loadGlobalOffset(); // クラウドからオフセット値を読み込み
+            loadPresets();
+            updateUIFromState();
+        };
+
+        // Supabaseクライアント初期化
+        function initSupabase() {
+            const url = localStorage.getItem('rng_supabase_url');
+            const key = localStorage.getItem('rng_supabase_key');
+            const statusEl = document.getElementById('sbStatus');
+            
+            document.getElementById('sbUrl').value = url || '';
+            document.getElementById('sbKey').value = key || '';
+
+            if (url && key) {
+                try {
+                    if (typeof supabase !== 'undefined') {
+                        supabaseClient = supabase.createClient(url, key);
+                        statusEl.innerText = "接続ステータス: クラウド同期中 (Supabase優先)";
+                        statusEl.style.color = "var(--success)";
+                    } else {
+                        statusEl.innerText = "接続ステータス: SDKロードエラー (ローカル保存中)";
+                        statusEl.style.color = "var(--danger)";
+                    }
+                } catch (e) {
+                    console.error("Supabase client creation error:", e);
+                    statusEl.innerText = "接続ステータス: 設定エラー";
+                    statusEl.style.color = "var(--danger)";
+                    supabaseClient = null;
+                }
+            } else {
+                statusEl.innerText = "接続ステータス: 未設定 (ローカル保存動作中)";
+                statusEl.style.color = "var(--sub-text)";
+                supabaseClient = null;
+            }
+        }
+
+        // Supabase設定の保存
+        function saveSupabaseConfig() {
+            const url = document.getElementById('sbUrl').value.trim();
+            const key = document.getElementById('sbKey').value.trim();
+            
+            if (url) {
+                localStorage.setItem('rng_supabase_url', url);
+            } else {
+                localStorage.removeItem('rng_supabase_url');
+            }
+            
+            if (key) {
+                localStorage.setItem('rng_supabase_key', key);
+            } else {
+                localStorage.removeItem('rng_supabase_key');
+            }
+            
+            initSupabase();
+            
+            // 両方が揃っている場合のみ、データベースからロード
+            if (url && key) {
+                loadGlobalOffset();
+                loadPresets();
+            }
+        }
+
+        // クラウド設定アコーディオンの切り替え
+        function toggleConfigPanel() {
+            const panel = document.getElementById('configPanel');
+            const btn = document.getElementById('configToggleBtn');
+            if (panel.style.display === 'none') {
+                panel.style.display = 'block';
+                btn.innerText = '[ 閉じる ]';
+            } else {
+                panel.style.display = 'none';
+                btn.innerText = '[ 開く ]';
+            }
+        }
+
+        // プルダウン生成 (T1 & T2 独立)
+        function initSelects() {
+            const createOpts = (id, start, end, pad = false) => {
+                const sel = document.getElementById(id);
+                sel.innerHTML = '';
+                for (let i = start; i <= end; i++) {
+                    let opt = document.createElement('option');
+                    opt.value = opt.text = pad ? String(i).padStart(2, '0') : i;
+                    sel.add(opt);
+                }
+            };
+            
+            [1, 2].forEach(n => {
+                createOpts(`sel-y-t${n}`, 2000, 2060);
+                createOpts(`sel-mo-t${n}`, 1, 12, true);
+                createOpts(`sel-d-t${n}`, 1, 31, true);
+                createOpts(`sel-h-t${n}`, 0, 23, true); 
+                createOpts(`sel-mi-t${n}`, 0, 59, true); 
+                createOpts(`sel-s-t${n}`, 0, 59, true);
+
+                // デフォルト年
+                document.getElementById(`sel-y-t${n}`).value = new Date().getFullYear();
+            });
+        }
+
+        // 月の日数を動的に調整する（うるう年対応）
+        function adjustDays(n, year, month, selectedDay) {
+            const selD = document.getElementById(`sel-d-t${n}`);
+            const daysInMonth = new Date(year, month, 0).getDate();
+            const currentVal = selectedDay || parseInt(selD.value) || 1;
+            
+            selD.innerHTML = '';
+            for (let i = 1; i <= daysInMonth; i++) {
+                let opt = document.createElement('option');
+                opt.value = opt.text = String(i).padStart(2, '0');
+                selD.add(opt);
+            }
+            
+            selD.value = String(Math.min(currentVal, daysInMonth)).padStart(2, '0');
+        }
+
+        // UIから状態を同期
+        function syncFromUI(n) {
+            const y = parseInt(document.getElementById(`sel-y-t${n}`).value);
+            const mo = parseInt(document.getElementById(`sel-mo-t${n}`).value);
+            
+            // 日にちの調整（大小の月、うるう年対応）
+            const currentDay = parseInt(document.getElementById(`sel-d-t${n}`).value);
+            adjustDays(n, y, mo, currentDay);
+
+            const d = document.getElementById(`sel-d-t${n}`).value;
+            const h = document.getElementById(`sel-h-t${n}`).value;
+            const mi = document.getElementById(`sel-mi-t${n}`).value;
+            const s = document.getElementById(`sel-s-t${n}`).value;
+
+            const padStr = (val) => String(val).padStart(2, '0');
+            const dateStr = `${y}/${padStr(mo)}/${d} ${h}:${mi}:${s}`;
+            
+            state['t' + n] = { d: dateStr, s: parseInt(s) };
+            
+            // 状態を保存
+            localStorage.setItem('rng_current_state', JSON.stringify(state));
+            
+            document.getElementById(`targetInput-t${n}`).value = dateStr;
+            refreshTimerDisplay(n);
+        }
+
+        // キーボード入力欄（テキストボックス）から同期
+        function syncFromTextInput(n) {
+            const input = document.getElementById(`targetInput-t${n}`);
+            let val = input.value.trim();
+            
+            // 数字以外の文字を除外した数字のみの文字列を抽出
+            const digits = val.replace(/\D/g, '');
+            
+            let y, mo, d, h, mi, s;
+            let success = false;
+            
+            if (digits.length === 14) {
+                // YYYYMMDDHHMMSS 形式
+                y = parseInt(digits.substring(0, 4));
+                mo = parseInt(digits.substring(4, 6));
+                d = parseInt(digits.substring(6, 8));
+                h = parseInt(digits.substring(8, 10));
+                mi = parseInt(digits.substring(10, 12));
+                s = parseInt(digits.substring(12, 14));
+                success = true;
+            } else if (digits.length === 12) {
+                // YYMMDDHHMMSS 形式（2000年代と判定）
+                y = 2000 + parseInt(digits.substring(0, 2));
+                mo = parseInt(digits.substring(2, 4));
+                d = parseInt(digits.substring(4, 6));
+                h = parseInt(digits.substring(6, 8));
+                mi = parseInt(digits.substring(8, 10));
+                s = parseInt(digits.substring(10, 12));
+                success = true;
+            } else {
+                // 通常の記号区切り形式 (YYYY/MM/DD HH:MM:SS または YYYY-MM-DD HH:MM:SS)
+                const regex = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})$/;
+                const match = val.match(regex);
+                
+                if (match) {
+                    y = parseInt(match[1]);
+                    mo = parseInt(match[2]);
+                    d = parseInt(match[3]);
+                    h = parseInt(match[4]);
+                    mi = parseInt(match[5]);
+                    s = parseInt(match[6]);
+                    success = true;
+                }
+            }
+            
+            if (success) {
+                // 妥当性チェック
+                if (y >= 2000 && y <= 2060 && mo >= 1 && mo <= 12 && h >= 0 && h <= 23 && mi >= 0 && mi <= 59 && s >= 0 && s <= 59) {
+                    const daysInMonth = new Date(y, mo, 0).getDate();
+                    if (d >= 1 && d <= daysInMonth) {
+                        // セレクトボックスの値を同期
+                        document.getElementById(`sel-y-t${n}`).value = y;
+                        document.getElementById(`sel-mo-t${n}`).value = String(mo).padStart(2, '0');
+                        
+                        // 日付調整を実行
+                        adjustDays(n, y, mo, d);
+                        
+                        document.getElementById(`sel-d-t${n}`).value = String(d).padStart(2, '0');
+                        document.getElementById(`sel-h-t${n}`).value = String(h).padStart(2, '0');
+                        document.getElementById(`sel-mi-t${n}`).value = String(mi).padStart(2, '0');
+                        document.getElementById(`sel-s-t${n}`).value = String(s).padStart(2, '0');
+                        
+                        // 状態を更新
+                        const dateStr = `${y}/${String(mo).padStart(2, '0')}/${String(d).padStart(2, '0')} ${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+                        state['t' + n] = { d: dateStr, s: s };
+                        localStorage.setItem('rng_current_state', JSON.stringify(state));
+                        
+                        // 入力欄の値も自動フォーマットして書き換え
+                        input.value = dateStr;
+                        
+                        refreshTimerDisplay(n);
+                        return;
+                    }
+                }
+            }
+            
+            // バリデーション失敗した場合は警告して元の値に戻す
+            alert("日付の形式または範囲が正しくありません。\n【対応形式】\n・14桁の数字 (例: 20260718164124)\n・12桁の数字 (例: 260718164124)\n・YYYY/MM/DD HH:MM:SS\n\n【有効範囲】2000年〜2060年");
+            updateUIFromState();
+        }
+
+        // 状態からUIを同期
+        function updateUIFromState() {
+            [1, 2].forEach(n => {
+                const target = state['t' + n];
+                const parts = target.d.match(/(\d+)\/(\d+)\/(\d+) (\d+):(\d+):(\d+)/);
+                if (parts) {
+                    const y = parseInt(parts[1]);
+                    const mo = parseInt(parts[2]);
+                    const d = parseInt(parts[3]);
+                    
+                    document.getElementById(`sel-y-t${n}`).value = y;
+                    document.getElementById(`sel-mo-t${n}`).value = String(mo).padStart(2, '0');
+                    
+                    // 月の日数を一旦更新してから日をセットする
+                    adjustDays(n, y, mo, d);
+                    
+                    document.getElementById(`sel-d-t${n}`).value = String(d).padStart(2, '0');
+                    document.getElementById(`sel-h-t${n}`).value = parts[4];
+                    document.getElementById(`sel-mi-t${n}`).value = parts[5];
+                    document.getElementById(`sel-s-t${n}`).value = parts[6];
+                }
+                document.getElementById(`targetInput-t${n}`).value = target.d;
+                refreshTimerDisplay(n);
+            });
+        }
+
+        // オフセット入力欄からの同期
+        async function syncOffsetFromInput() {
+            const input = document.getElementById('offsetInput');
+            let val = parseInt(input.value) || 0;
+            globalOffset = val; // 入力はフレーム数
+            localStorage.setItem('rng_global_offset', globalOffset);
+            refreshTimerDisplay(1);
+            refreshTimerDisplay(2);
+
+            // クラウド同期
+            if (supabaseClient) {
+                try {
+                    await supabaseClient
+                        .from('settings')
+                        .upsert([{ key: 'global_offset', value: String(globalOffset) }]);
+                    console.log("Global offset synced to Supabase:", globalOffset);
+                } catch(e) {
+                    console.warn("Supabase offset upsert failed (offline).");
+                }
+            }
+        }
+
+        // オフセット調整（フレーム単位）
+        async function adjOffset(frames) {
+            if (runningTimer !== null) return;
+            globalOffset += frames;
+            localStorage.setItem('rng_global_offset', globalOffset);
+            document.getElementById('offsetInput').value = globalOffset;
+            refreshTimerDisplay(1);
+            refreshTimerDisplay(2);
+
+            // クラウド同期
+            if (supabaseClient) {
+                try {
+                    await supabaseClient
+                        .from('settings')
+                        .upsert([{ key: 'global_offset', value: String(globalOffset) }]);
+                    console.log("Global offset synced to Supabase:", globalOffset);
+                } catch(e) {
+                    console.warn("Supabase offset upsert failed (offline).");
+                }
+            }
+        }
+
+        // タイマー切り替え (スマホ用)
+        function switchTimer(n) {
+            if (runningTimer !== null) return;
+            activeT = n;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.getElementById('tab' + n).classList.add('active');
+            
+            const appContainer = document.getElementById('appContainer');
+            appContainer.className = `app-container show-t${n}`;
+        }
+
+        // 表示の更新
+        function refreshTimerDisplay(n) {
+            const totalFrames = (state['t' + n].s * FPS) + globalOffset;
+            updateDisplay(totalFrames, n);
+        }
+
+        function updateDisplay(f, n) {
+            const sec = Math.max(0, (f / FPS));
+            document.getElementById(`dispMs-t${n}`).innerText = sec.toFixed(2);
+            
+            const offsetSec = (globalOffset / FPS);
+            const offsetSign = globalOffset >= 0 ? "+" : "";
+            document.getElementById(`dispFrame-t${n}`).innerText = Math.floor(Math.max(0, f)) + " F (Offset: " + offsetSign + globalOffset + "F / " + offsetSign + offsetSec.toFixed(2) + "s)";
+        }
+
+        // ビープ音再生 (iOS対応)
+        function playBeep(isFinal) {
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                
+                const o = audioCtx.createOscillator(); 
+                const g = audioCtx.createGain();
+                
+                o.type = isFinal ? 'square' : 'triangle';
+                o.frequency.setValueAtTime(isFinal ? 1200 : 800, audioCtx.currentTime);
+                
+                g.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+                
+                o.connect(g); 
+                g.connect(audioCtx.destination);
+                o.start(); 
+                o.stop(audioCtx.currentTime + 0.12);
+            } catch (e) {
+                console.error("Audio playback error:", e);
+            }
+        }
+
+        // タイマー制御 (絶対時間方式)
+        function toggleTimer(n) {
+            if (runningTimer === n) { 
+                stop(); 
+                return; 
+            }
+            
+            // 他方のタイマーが動作中なら動作しない
+            if (runningTimer !== null) return;
+            
+            // iOS等でのオーディオ再生許可のため、ユーザー操作時にコンテキストを作成・再開
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            const totalSec = state['t' + n].s;
+            startFrame = (totalSec * FPS) + globalOffset;
+            
+            if (startFrame <= 0) {
+                alert("タイマー時間が0以下です。オフセット値または目標時間を確認してください。");
+                return;
+            }
+
+            runningTimer = n; 
+            soundedIndex = -1;
+            
+            // UI制御 (動作中タイマーのビジュアル変更、他タイマー・コントロールの非活性化)
+            document.getElementById(`mainDisplay-t${n}`).classList.add('timer-active');
+            document.getElementById(`mainBtn-t${n}`).innerText = `STOP TIMER ${n}`;
+            document.getElementById(`mainBtn-t${n}`).className = "btn-main btn-stop";
+            
+            // 非動作中タイマー、オフセット調整のコントロールを無効化
+            const otherN = n === 1 ? 2 : 1;
+            document.getElementById(`mainBtn-t${otherN}`).disabled = true;
+            document.getElementById('offsetInput').disabled = true;
+            document.querySelectorAll('.adj-btn').forEach(btn => btn.disabled = true);
+            
+            startTime = performance.now();
+            timerId = requestAnimationFrame(tick);
+        }
+
+        function tick(now) {
+            if (runningTimer === null) return;
+            
+            const elapsedMs = now - startTime;
+            const elapsedFrames = (elapsedMs * FPS) / 1000;
+            currentF = startFrame - elapsedFrames;
+
+            if (currentF <= 0) {
+                currentF = 0;
+                updateDisplay(currentF, runningTimer);
+                
+                // 最後の0秒ビープを鳴らす
+                if (soundedIndex < BEEP_TIMES.length - 1) {
+                    playBeep(true);
+                    soundedIndex = BEEP_TIMES.length - 1;
+                }
+                stop(); 
+                return; 
+            }
+
+            updateDisplay(currentF, runningTimer);
+
+            // ビープ音タイミング判定 (残り秒数ベース)
+            const remainingSec = currentF / FPS;
+            for (let i = 0; i < BEEP_TIMES.length; i++) {
+                if (i > soundedIndex && remainingSec <= BEEP_TIMES[i]) {
+                    playBeep(BEEP_TIMES[i] === 0.0); 
+                    soundedIndex = i;
+                }
+            }
+
+            timerId = requestAnimationFrame(tick);
+        }
+
+        function stop() {
+            if (runningTimer === null) return;
+            
+            const n = runningTimer;
+            runningTimer = null; 
+            cancelAnimationFrame(timerId);
+            
+            // UIリセット
+            document.getElementById(`mainDisplay-t${n}`).classList.remove('timer-active');
+            document.getElementById(`mainBtn-t${n}`).innerText = `START TIMER ${n}`;
+            document.getElementById(`mainBtn-t${n}`).className = "btn-main btn-start";
+            
+            // コントロール無効化の解除
+            const otherN = n === 1 ? 2 : 1;
+            document.getElementById(`mainBtn-t${otherN}`).disabled = false;
+            document.getElementById('offsetInput').disabled = false;
+            document.querySelectorAll('.adj-btn').forEach(btn => btn.disabled = false);
+            
+            refreshTimerDisplay(n);
+        }
+
+        // クラウドからグローバルオフセット値を読み込み
+        async function loadGlobalOffset() {
+            if (supabaseClient) {
+                try {
+                    const { data, error } = await supabaseClient
+                        .from('settings')
+                        .select('value')
+                        .eq('key', 'global_offset')
+                        .maybeSingle(); 
+                    
+                    if (error) {
+                        console.warn("Supabase load offset error:", error);
+                    } else if (data) {
+                        globalOffset = parseInt(data.value) || 0;
+                        localStorage.setItem('rng_global_offset', globalOffset);
+                        document.getElementById('offsetInput').value = globalOffset;
+                        refreshTimerDisplay(1);
+                        refreshTimerDisplay(2);
+                        console.log("Global offset synchronized from Supabase:", globalOffset);
+                    }
+                } catch (e) {
+                    console.log("Failed to fetch global offset from Supabase (offline mode).");
+                }
+            }
+        }
+
+        // ソートモードの変更
+        function changeSortMode(mode) {
+            currentSortMode = mode;
+            document.getElementById('sort-newest').classList.toggle('active', mode === 'newest');
+            document.getElementById('sort-usage').classList.toggle('active', mode === 'usage');
+            
+            // プリセットを再レンダリングする
+            let presets = [];
+            try {
+                presets = JSON.parse(localStorage.getItem('rng_p_v12') || "[]");
+            } catch(e) {}
+            renderPresets(presets);
+        }
+
+        // プリセット管理 (Supabase & ローカルキャッシュのハイブリッド同期)
+        async function savePreset() {
+            const nameInput = document.getElementById('presetName');
+            const name = nameInput.value.trim() || "無題のプリセット";
+            
+            const newPreset = {
+                id: Date.now(),
+                name: name,
+                t1: JSON.parse(JSON.stringify(state.t1)),
+                t2: JSON.parse(JSON.stringify(state.t2)),
+                use_count: 0
+            };
+            
+            let presets = [];
+            try {
+                presets = JSON.parse(localStorage.getItem('rng_p_v12') || "[]");
+            } catch(e) {}
+            
+            presets.push(newPreset);
+            
+            // 1. ローカルキャッシュに即時保存して描画
+            localStorage.setItem('rng_p_v12', JSON.stringify(presets));
+            renderPresets(presets);
+            nameInput.value = "";
+
+            // 2. Supabase クラウドに同期
+            if (supabaseClient) {
+                try {
+                    const { error } = await supabaseClient
+                        .from('presets')
+                        .insert([{ id: newPreset.id, name: name, t1: newPreset.t1, t2: newPreset.t2, use_count: 0 }]);
+                    
+                    if (error) {
+                        console.error("Supabase insert error:", error);
+                    } else {
+                        console.log("Preset synchronized with Supabase successfully.");
+                    }
+                } catch(e) {
+                    console.warn("Supabase insertion skipped or failed (offline).");
+                }
+            }
+        }
+
+        // プリセットの読み込み (クラウド取得 & キャッシュ更新)
+        async function loadPresets() {
+            // 1. まずローカルのキャッシュから読み込み表示 (高速描画のため)
+            let localPresets = [];
+            try {
+                localPresets = JSON.parse(localStorage.getItem('rng_p_v12') || "[]");
+                renderPresets(localPresets);
+            } catch(e) {}
+
+            // 2. Supabase から最新データを取得
+            if (supabaseClient) {
+                try {
+                    const { data, error } = await supabaseClient
+                        .from('presets')
+                        .select('*')
+                        .order('id', { ascending: true });
+                    
+                    if (error) {
+                        console.error("Supabase select error:", error);
+                    } else if (data) {
+                        const serverPresets = data.map(item => ({
+                            id: item.id,
+                            name: item.name,
+                            t1: item.t1,
+                            t2: item.t2,
+                            use_count: item.use_count || 0
+                        }));
+                        // ローカルとの同期（マージ）
+                        await mergeAndSyncPresets(localPresets, serverPresets);
+                    }
+                } catch (e) {
+                    console.log("Supabase fetch failed (offline mode). Using cached presets.");
+                }
+            }
+        }
+
+        // 未同期ローカルデータのアップロードとマージ
+        async function mergeAndSyncPresets(localPresets, serverPresets) {
+            if (!supabaseClient) return;
+
+            const serverIds = new Set(serverPresets.map(p => p.id));
+            // サーバーに存在しないローカルだけのデータ
+            const unsyncedPresets = localPresets.filter(p => !serverIds.has(p.id));
+            
+            if (unsyncedPresets.length > 0) {
+                console.log("Uploading unsynced local presets to Supabase:", unsyncedPresets);
+                for (let p of unsyncedPresets) {
+                    try {
+                        await supabaseClient
+                            .from('presets')
+                            .insert([{ id: p.id, name: p.name, t1: p.t1, t2: p.t2, use_count: p.use_count || 0 }]);
+                    } catch(e) {
+                        console.error("Failed to sync unsynced preset:", p.id, e);
+                    }
+                }
+                
+                // 再同期
+                try {
+                    const { data } = await supabaseClient.from('presets').select('*').order('id', { ascending: true });
+                    if (data) {
+                        const finalPresets = data.map(item => ({
+                            id: item.id,
+                            name: item.name,
+                            t1: item.t1,
+                            t2: item.t2,
+                            use_count: item.use_count || 0
+                        }));
+                        localStorage.setItem('rng_p_v12', JSON.stringify(finalPresets));
+                        renderPresets(finalPresets);
+                        return;
+                    }
+                } catch(e) {}
+            }
+            
+            // サーバーのデータを最新としてキャッシュ
+            localStorage.setItem('rng_p_v12', JSON.stringify(serverPresets));
+            renderPresets(serverPresets);
+        }
+
+        // リスト描画
+        function renderPresets(presets) {
+            const list = document.getElementById('presetList');
+            list.innerHTML = "";
+            
+            if (presets.length === 0) {
+                list.innerHTML = '<div class="empty-preset">保存されたプリセットはありません</div>';
+                return;
+            }
+            
+            let sorted = [...presets];
+            if (currentSortMode === 'usage') {
+                // 使用頻度順 (使用数降順、同じならid降順)
+                sorted.sort((a, b) => {
+                    const countA = a.use_count || 0;
+                    const countB = b.use_count || 0;
+                    if (countB !== countA) return countB - countA;
+                    return b.id - a.id;
+                });
+            } else {
+                // 新着順 (id降順)
+                sorted.sort((a, b) => b.id - a.id);
+            }
+            
+            sorted.forEach(p => {
+                const item = document.createElement('div');
+                item.className = "preset-item";
+                
+                const usageBadge = p.use_count > 0 ? `<span style="font-size:0.7rem; background:#2c2c2e; color:var(--accent); padding:2px 6px; border-radius:4px; margin-left:6px; font-weight:bold;">LOAD: ${p.use_count}回</span>` : '';
+                
+                item.innerHTML = `
+                    <div class="preset-info">
+                        <div class="preset-name" style="display:flex; align-items:center;">${p.name}${usageBadge}</div>
+                        <div class="preset-meta">Timer 1: ${p.t1.d} (${p.t1.s}s)</div>
+                        <div class="preset-meta">Timer 2: ${p.t2.d} (${p.t2.s}s)</div>
+                    </div>
+                    <div class="preset-actions">
+                        <button class="btn-load" onclick="applyPreset(${p.id})">LOAD</button>
+                        <button class="btn-delete" onclick="deletePreset(${p.id})">削除</button>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        async function applyPreset(id) {
+            try {
+                let presets = JSON.parse(localStorage.getItem('rng_p_v12') || "[]");
+                const p = presets.find(x => x.id === id);
+                if (p) {
+                    // 使用回数のインクリメント
+                    p.use_count = (p.use_count || 0) + 1;
+                    localStorage.setItem('rng_p_v12', JSON.stringify(presets));
+                    renderPresets(presets);
+                    
+                    // 状態に適用
+                    state.t1 = p.t1; 
+                    state.t2 = p.t2;
+                    localStorage.setItem('rng_current_state', JSON.stringify(state));
+                    updateUIFromState();
+                    
+                    // Supabase同期
+                    if (supabaseClient) {
+                        try {
+                            await supabaseClient
+                                .from('presets')
+                                .update({ use_count: p.use_count })
+                                .eq('id', id);
+                            console.log("Supabase use_count updated:", p.use_count);
+                        } catch(e) {
+                            console.warn("Supabase use_count sync failed (offline).");
+                        }
+                    }
+                    
+                    // 最上部へスムーズスクロール
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+            } catch(e) {
+                console.error("Failed to apply preset:", e);
+            }
+        }
+
+        async function deletePreset(id) {
+            if (!confirm("このプリセットを完全に削除してもよろしいですか？")) return;
+            try {
+                let presets = JSON.parse(localStorage.getItem('rng_p_v12') || "[]");
+                presets = presets.filter(x => x.id !== id);
+                
+                // 1. ローカルキャッシュ更新
+                localStorage.setItem('rng_p_v12', JSON.stringify(presets));
+                renderPresets(presets);
+                
+                // 2. Supabase 同期
+                if (supabaseClient) {
+                    try {
+                        const { error } = await supabaseClient
+                            .from('presets')
+                            .delete()
+                            .eq('id', id);
+                        
+                        if (error) {
+                            console.error("Supabase delete error:", error);
+                        } else {
+                            console.log("Preset deleted from Supabase.");
+                        }
+                    } catch(e) {
+                        console.warn("Supabase delete failed or skipped (offline).");
+                    }
+                }
+            } catch(e) {
+                console.error("Failed to delete preset:", e);
+            }
+        }
+    </script>
+</body>
+</html>
